@@ -5,7 +5,6 @@ import cv2 as cv2
 
 import torch
 import random
-import pywt
 from matplotlib import pyplot as plt
     
     
@@ -174,85 +173,7 @@ class ImagePatchify:
                 _, edges = cv2.threshold(bth.astype(np.uint8), t, 255, thresh_type)
                 # Ensure pure black areas are ignored (masked to 0)
                 edges[grey_img == 0] = 0
-                
-            elif self.method == 'localvar':
-                # Local Variance: Box filter variance for texture roughness
-                kernel_size = 15
-                img_f = grey_img.astype(np.float32)
-                mean  = cv2.boxFilter(img_f,   cv2.CV_32F, (kernel_size, kernel_size))
-                mean2 = cv2.boxFilter(img_f**2, cv2.CV_32F, (kernel_size, kernel_size))
-                variance = np.maximum(mean2 - mean**2, 0.0)
-                
-                # Normalize to 0-255
-                mn, mx = variance.min(), variance.max()
-                if mx - mn > 1e-8:
-                    variance = (variance - mn) / (mx - mn) * 255.0
-                
-                # Threshold to binary map. Default invert for LocalVar is True.
-                do_invert = self.invert if self.invert is not None else True
-                thresh_type = cv2.THRESH_BINARY_INV if do_invert else cv2.THRESH_BINARY
-                
-                t = random.choice(self.localvar_thresholds)
-                _, edges = cv2.threshold(variance.astype(np.uint8), t, 255, thresh_type)
-                # Ensure pure black areas are ignored (masked to 0)
-                edges[grey_img == 0] = 0
-
-            elif self.method == 'psd':
-                # Local Power Spectral Density
-                window_size, stride = 32, 8
-                h, w = grey_img.shape
-                pad = window_size // 2
-                img_pad = np.pad(grey_img.astype(np.float32), pad, mode='reflect')
-
-                yy = np.arange(0, h, stride)
-                xx = np.arange(0, w, stride)
-                psd_small = np.zeros((len(yy), len(xx)), dtype=np.float32)
-                win = np.hanning(window_size)[:, None] * np.hanning(window_size)
-
-                for i, y in enumerate(yy):
-                    for j, x in enumerate(xx):
-                        window = img_pad[y:y+window_size, x:x+window_size] * win
-                        f = np.fft.fft2(window)
-                        fshift = np.fft.fftshift(f)
-                        mag_sq = np.abs(fshift)**2
-                        cy, cx = window_size // 2, window_size // 2
-                        mag_sq[cy-2:cy+3, cx-2:cx+3] = 0
-                        psd_small[i, j] = np.sum(mag_sq)
-
-                psd = cv2.resize(psd_small, (w, h), interpolation=cv2.INTER_LINEAR)
-                # Normalize
-                mn, mx = psd.min(), psd.max()
-                if mx - mn > 1e-8:
-                    psd = (psd - mn) / (mx - mn) * 255.0
-
-                do_invert = self.invert if self.invert is not None else False
-                thresh_type = cv2.THRESH_BINARY_INV if do_invert else cv2.THRESH_BINARY
-                t = random.choice(self.psd_thresholds)
-                _, edges = cv2.threshold(psd.astype(np.uint8), t, 255, thresh_type)
-                edges[grey_img == 0] = 0
-
-            elif self.method == 'wavelet':
-                # DWT Detail Energy
-                img_f = grey_img.astype(np.float32)
-                coeffs = pywt.dwt2(img_f, 'db1')
-                cA, (cH, cV, cD) = coeffs
-                energy = cH**2 + cV**2 + cD**2
-                
-                h, w = grey_img.shape
-                energy_smooth = cv2.GaussianBlur(energy, (5, 5), 0)
-                wav = cv2.resize(energy_smooth, (w, h), interpolation=cv2.INTER_LINEAR)
-
-                # Normalize
-                mn, mx = wav.min(), wav.max()
-                if mx - mn > 1e-8:
-                    wav = (wav - mn) / (mx - mn) * 255.0
-
-                do_invert = self.invert if self.invert is not None else False
-                thresh_type = cv2.THRESH_BINARY_INV if do_invert else cv2.THRESH_BINARY
-                t = random.choice(self.wavelet_thresholds)
-                _, edges = cv2.threshold(wav.astype(np.uint8), t, 255, thresh_type)
-                edges[grey_img == 0] = 0
-                
+           
             else:
                 raise ValueError(f"Unknown ImagePatchify method: {self.method}")
 
