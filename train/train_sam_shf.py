@@ -35,13 +35,7 @@ from SHF.shf import ImagePatchify
 # ---------------------------------------------------------------------------
 
 class OnlineSHFDataset(Dataset):
-    def __init__(self, image_dir, mask_dir, target_size, fixed_length, patch_size=16, is_train=True, method='canny', invert=None, bgr=False):
-        self.image_paths  = sorted(
-            glob(os.path.join(image_dir, "*.png"))  +
-            glob(os.path.join(image_dir, "*.jpg"))  +
-            glob(os.path.join(image_dir, "*.tif"))  +
-            glob(os.path.join(image_dir, "*.tiff"))
-        )
+    def __init__(self, image_paths, mask_dir, target_size, fixed_length, patch_size=16, is_train=True, method='canny', invert=None, bgr=False, coverage=0.0):
         self.mask_dir     = mask_dir
         self.target_size  = target_size
         self.fixed_length = fixed_length
@@ -50,12 +44,38 @@ class OnlineSHFDataset(Dataset):
         self.method       = method
         self.invert       = invert
         self.bgr          = bgr
+        self.coverage     = coverage
+        
+        # Filter images by mask coverage if a coverage threshold is specified
+        filtered_paths = []
+        for p in image_paths:
+            basename_no_ext = os.path.splitext(os.path.basename(p))[0]
+            candidate_mask = None
+            for ext in ['.png', '.jpg', '.jpeg', '.tif', '.tiff']:
+                cand = os.path.join(self.mask_dir, basename_no_ext + ext)
+                if os.path.exists(cand):
+                    candidate_mask = cand
+                    break
+            
+            if candidate_mask and self.coverage > 0:
+                # Calculate mask coverage
+                try:
+                    m_arr = np.array(Image.open(candidate_mask).convert("L"))
+                    mask_ratio = np.mean(m_arr > 127)
+                    if mask_ratio >= self.coverage:
+                        filtered_paths.append(p)
+                except Exception:
+                    filtered_paths.append(p)
+            else:
+                filtered_paths.append(p)
+                
+        self.image_paths = filtered_paths
         
         # In this repo, ImagePatchify is in SHF.shf
         self.patchify = ImagePatchify(fixed_length=fixed_length, patch_size=patch_size, num_channels=3, is_train=is_train, method=method, invert=invert)
         
         if len(self.image_paths) == 0:
-            print(f"Warning: No images found in {image_dir}")
+            print(f"Warning: No images found in dataset.")
 
     def __len__(self):
         return len(self.image_paths)
@@ -232,15 +252,51 @@ def reconstruct_batch_preds(probs, coords, target_size):
 # Training Session
 # ---------------------------------------------------------------------------
 
+def set_seed(seed):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+
 def run_training_session(args):
+    set_seed(args.seed)
     device = torch.device(f"cuda:{args.gpu}" if torch.cuda.is_available() else "cpu")
     print(f"Device: {device}")
     
+    run_name = f"{args.method}_cov{args.coverage}_s{args.seed}"
+    args.output_dir = os.path.join(args.output_base, run_name)
     os.makedirs(args.output_dir, exist_ok=True)
     
+    all_images = sorted(
+        glob(os.path.join(args.image_dir, "*.png"))  +
+        glob(os.path.join(args.image_dir, "*.jpg"))  +
+        glob(os.path.join(args.image_dir, "*.tif"))  +
+        glob(os.path.join(args.image_dir, "*.tiff"))
+    )
+    if not all_images:
+        print(f"No images found in {args.image_dir}!")
+        return
+
+    random.shuffle(all_images)
+    n = len(all_images)
+    n_test = int(n * args.test_split)
+    n_val = int(n * args.val_split)
+    
+    test_paths = all_images[:n_test]
+    val_paths = all_images[n_test:n_test+n_val]
+    train_paths = all_images[n_test+n_val:]
+    
+    print(f"Train: {len(train_paths)} | Val: {len(val_paths)} | Test: {len(test_paths)}")
+    
     # Dataset
-    train_dataset = OnlineSHFDataset(args.image_dir, args.mask_dir, args.target_size, args.fixed_length, patch_size=args.patch_size, is_train=True, method=args.method, bgr=args.bgr)
+    train_dataset = OnlineSHFDataset(train_paths, args.mask_dir, args.target_size, args.fixed_length, patch_size=args.patch_size, is_train=True, method=args.method, bgr=args.bgr, coverage=args.coverage)
     loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, num_workers=args.num_workers)
+    
+    val_loader = None
+    if len(val_paths) > 0:
+        val_dataset = OnlineSHFDataset(val_paths, args.mask_dir, args.target_size, args.fixed_length, patch_size=args.patch_size, is_train=False, method=args.method, bgr=args.bgr, coverage=args.coverage)
+        val_loader = DataLoader(val_dataset, batch_size=max(1, args.batch_size), shuffle=False, num_workers=args.num_workers)
     
     # Encoder (SAM-based)
     encoder = SHFSAMEncoder(
@@ -265,6 +321,7 @@ def run_training_session(args):
     model = GDTModelWrapper(encoder, patch_size=args.patch_size).to(device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr)
     criterion = DiceBCELoss()
+    scaler = torch.cuda.amp.GradScaler(enabled=(args.mixed_precision == 'fp16'))
     
     best_iou = -1.0
     losses, ious = [], []
@@ -276,10 +333,13 @@ def run_training_session(args):
         for batch in pbar:
             for k, v in batch.items(): batch[k] = v.to(device)
             optimizer.zero_grad()
-            out = model(batch)
-            loss = criterion(out['logits'], batch['mask'])
-            loss.backward()
-            optimizer.step()
+            with torch.cuda.amp.autocast(enabled=(args.mixed_precision == 'fp16')):
+                out = model(batch)
+                loss = criterion(out['logits'], batch['mask'])
+            scaler.scale(loss).backward()
+            scaler.step(optimizer)
+            scaler.update()
+            
             ep_loss += loss.item()
             pbar.set_postfix(loss=f"{loss.item():.4f}")
         
@@ -287,26 +347,34 @@ def run_training_session(args):
         losses.append(avg_loss)
         
         # Validation
-        model.eval()
-        with torch.no_grad():
-            val_iou = 0.0
-            count = 0
-            for i, batch in enumerate(loader):
-                if i > 10: break
-                for k, v in batch.items(): batch[k] = v.to(device)
-                out = model(batch)
-                probs = torch.sigmoid(out['logits'])
-                preds_full = reconstruct_batch_preds(probs, batch['coords'], args.target_size)
-                m = compute_metrics(preds_full, batch['full_mask'], thresholds=[0.5])
-                val_iou += m[0.5]['iou']
-                count += 1
-            avg_iou = val_iou / max(1, count)
-            ious.append(avg_iou)
-            print(f"Epoch {epoch+1} - Loss: {avg_loss:.4f} - IoU (t=0.5): {avg_iou:.4f}")
-            
-            if avg_iou > best_iou:
-                best_iou = avg_iou
-                torch.save(model.state_dict(), os.path.join(args.output_dir, "best_model_sam.pth"))
+        if val_loader is not None:
+            model.eval()
+            with torch.no_grad():
+                val_iou = 0.0
+                val_dice = 0.0
+                count = 0
+                for i, batch in enumerate(val_loader):
+                    for k, v in batch.items(): batch[k] = v.to(device)
+                    with torch.cuda.amp.autocast(enabled=(args.mixed_precision == 'fp16')):
+                        out = model(batch)
+                    probs = torch.sigmoid(out['logits'])
+                    preds_full = reconstruct_batch_preds(probs, batch['coords'], args.target_size)
+                    m = compute_metrics(preds_full, batch['full_mask'], thresholds=[0.5])
+                    val_iou += m[0.5]['iou']
+                    val_dice += m[0.5]['dice']
+                    count += 1
+                avg_iou = val_iou / max(1, count)
+                avg_dice = val_dice / max(1, count)
+                ious.append(avg_iou)
+                print(f"Epoch {epoch+1} - Loss: {avg_loss:.4f} - IoU: {avg_iou:.4f} - Dice: {avg_dice:.4f}")
+                
+                if avg_iou > best_iou:
+                    best_iou = avg_iou
+                    torch.save(model.state_dict(), os.path.join(args.output_dir, "best_model_sam.pth"))
+                    
+                if avg_dice >= args.target_dice:
+                    print(f"\nReached Target Dice ({avg_dice:.4f} >= {args.target_dice}). Stopping early.")
+                    break
 
         if (epoch + 1) % 5 == 0:
             plt.figure(figsize=(10, 4))
@@ -323,7 +391,13 @@ def main():
     parser.add_argument('--method', choices=['canny', 'bth'], default='bth')
     parser.add_argument('--image-dir', type=str, required=True)
     parser.add_argument('--mask-dir', type=str, required=True)
-    parser.add_argument('--output-dir', type=str, default='./output_sam_shf')
+    parser.add_argument('--output-base', type=str, default='./SEM_comp')
+    parser.add_argument('--coverage', type=float, default=0.3)
+    parser.add_argument('--val-split', type=float, default=0.1)
+    parser.add_argument('--test-split', type=float, default=0.1)
+    parser.add_argument('--seed', type=int, default=42)
+    parser.add_argument('--target-dice', type=float, default=0.9)
+    parser.add_argument('--mixed-precision', type=str, default='fp16', choices=['no', 'fp16', 'bf16'])
     parser.add_argument('--target-size', type=int, default=1024)
     parser.add_argument('--patch-size', type=int, default=16)
     parser.add_argument('--fixed-length', type=int, default=256)
