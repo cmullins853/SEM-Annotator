@@ -5,7 +5,6 @@ import cv2 as cv2
 
 import torch
 import random
-from matplotlib import pyplot as plt
     
     
 class Rect:
