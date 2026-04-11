@@ -1,6 +1,6 @@
 # SEM-Annotator
 
-SEM-Annotator is a suite of interactive Python tools tailored for the preprocessing, segmentation, and annotation of Scanning Electron Microscope (SEM) imagery, as well as broader remote sensing (RS) tasks. The repository integrates direct CV-based thresholding with advanced AI topographical modeling (Depth Anything V2), and incorporates Vision Transformer (ViT) and Segment Anything Model (SAM) pipelines via the Stochastic Hierarchical Forest (SHF) protocol.
+SEM-Annotator is a suite of interactive Python tools tailored for the preprocessing, segmentation, and annotation of Scanning Electron Microscope (SEM) imagery, as well as broader remote sensing (RS) tasks. The repository integrates direct CV-based thresholding with advanced AI topographical modeling (Depth Anything V2), and incorporates Vision Transformer (ViT) and Segment Anything Model (SAM) pipelines via the Symmetrical Hierarchical Forest (SHF) protocol.
 
 ## Core Features
 
@@ -33,7 +33,7 @@ python depth_anything_remover.py --dir path/to/images --model depth-anything/Dep
 ### 3. Model Training Pipeline (SHF, SAM, ViTs)
 The `/train`, `/model`, and `/SHF` directories contain the core training implementation and architecture definitions for the deep learning component of the project.
 - **SAM & ViT Architectures**: Re-implemented Segment Anything Model and Vision Transformers explicitly configured for image patchification and representation learning.
-- **Stochastic Hierarchical Forest**: Adapts existing models to support Canny and BTH texture features.
+- **Symmetrical Hierarchical Forest**: Adapts existing models to support Canny and Base features.
 - **Training Scripts**: Check out `train/train_sam_shf.py` and `train/train_comparison.py`, featuring built-in distributed training support, metrics generation (Chamfer Similarity), and seamless Hugging Face Hub integration for checkpoint loading.
   - `train_sam_shf.py` features robust automated dataset splitting (`--val-split`, `--test-split`), early stopping via semantic loss tracking (`--target-dice`), mask density filtering (`--coverage`), and VRAM-optimized iteration (`--mixed-precision fp16`).
 

@@ -179,7 +179,7 @@ def repeat_items(items, repeat_factor):
 class OnlineSHFDataset(Dataset):
     """
     Loads raw tiles/masks, optionally applies synchronous augmentations,
-    and runs them through a dynamic, stochastic ImagePatchify QuadTree
+    and runs them through a dynamic, symmetrical ImagePatchify QuadTree
     on every epoch to create a true 'Hierarchical Forest' during training.
     """
     def __init__(self, image_dir, mask_dir, target_size, fixed_length, patch_size=16, is_train=True, method='canny', invert=None, bgr=False, brightness_jitter=0.15):
@@ -265,7 +265,7 @@ class OnlineSHFDataset(Dataset):
                 img_np, mask_np, patch_size=P
             )
         else:
-            # 1. Stochastic QuadTree build on the image
+            # 1. Symmetrical QuadTree build on the image
             seq_patches, seq_sizes, seq_pos, qdt = self.patchify(img_np)
 
             # 2. Serialize the mask using the SAME tree
