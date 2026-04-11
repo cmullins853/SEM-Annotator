@@ -87,7 +87,7 @@ def enforce_len(arr, target_len):
     return arr
 
 
-def build_edge_map(image_rgb, method, blur_ksize, canny_t1, bth_t, invert):
+def build_edge_map(image_rgb, method, blur_ksize, canny_t1):
     if blur_ksize % 2 == 0:
         blur_ksize += 1
 
@@ -96,25 +96,16 @@ def build_edge_map(image_rgb, method, blur_ksize, canny_t1, bth_t, invert):
 
     if method == "canny":
         edges = cv2.Canny(blurred, canny_t1, canny_t1 * 2)
-    elif method == "bth":
-        kernel_size = 25
-        se = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (kernel_size, kernel_size))
-        closed = cv2.morphologyEx(blurred, cv2.MORPH_CLOSE, se)
-        bth = cv2.subtract(closed, blurred).astype(np.float32)
-        mn, mx = float(bth.min()), float(bth.max())
-        if mx - mn > 1e-8:
-            bth = (bth - mn) / (mx - mn) * 255.0
-        thresh_type = cv2.THRESH_BINARY_INV if invert else cv2.THRESH_BINARY
-        _, edges = cv2.threshold(bth.astype(np.uint8), bth_t, 255, thresh_type)
-        edges[gray == 0] = 0
+    elif method == "base":
+        edges = gray # Base method doesn't use edges
     else:
         raise ValueError(f"Unsupported method: {method}")
 
     return edges
 
 
-def build_inference_batch(image_rgb, fixed_length, patch_size, method, invert, blur_ksize, canny_t1, bth_t):
-    edges = build_edge_map(image_rgb, method, blur_ksize, canny_t1, bth_t, invert)
+def build_inference_batch(image_rgb, fixed_length, patch_size, method, blur_ksize, canny_t1):
+    edges = build_edge_map(image_rgb, method, blur_ksize, canny_t1)
     qdt = FixedQuadTree(edges, fixed_length=fixed_length)
     seq_patches, seq_sizes, seq_pos = qdt.serialize(image_rgb, patch_size, 3)
     coords = np.array([node[0].get_coord() for node in qdt.nodes], dtype=np.float32)
@@ -201,8 +192,8 @@ def infer_method_from_weights(weights_path):
         lowered = part.lower()
         if lowered.startswith("canny"):
             return "canny"
-        if lowered.startswith("bth"):
-            return "bth"
+        if lowered.startswith("base"):
+            return "base"
     return None
 
 
@@ -343,10 +334,8 @@ def process_image(
         fixed_length=args.fixed_length,
         patch_size=args.patch_size,
         method=args.method,
-        invert=args.invert,
         blur_ksize=args.blur_ksize,
         canny_t1=args.canny_t1,
-        bth_t=args.bth_threshold,
     )
     batch = {k: v.to(device) for k, v in batch.items()}
 
@@ -427,7 +416,7 @@ def build_arg_parser():
     parser.add_argument("--input_mode", choices=["image", "mask"], default="image", help="Use raw images with SAM inference or consume preprocessed masks directly.")
     parser.add_argument("--output_dir", default="sam_inference_output", help="Directory for masks, polygons, overlays, and CSV output.")
     parser.add_argument("--weights", help="Path to best_model_sam.pth. If omitted, the script tries to find one under SEM_comp.")
-    parser.add_argument("--method", choices=["canny", "bth"], help="Patchification method used during training. If omitted, inferred from checkpoint path when possible.")
+    parser.add_argument("--method", choices=["canny", "base"], help="Patchification method used during training. If omitted, inferred from checkpoint path when possible.")
     parser.add_argument("--device", default="auto", help="Torch device, e.g. auto, cpu, cuda:0.")
     parser.add_argument("--target_size", type=int, help="Inference size expected by the checkpoint.")
     parser.add_argument("--patch_size", type=int, help="Patch size used during training.")
@@ -445,12 +434,8 @@ def build_arg_parser():
     parser.add_argument("--per_image_stats_csv", default=None, help="Optional summary CSV with mean/std per image and method.")
     parser.add_argument("--max_instances_per_method", type=int, default=3, help="How many measurement geometries to draw and sample per method per polygon.")
     parser.add_argument("--mic_spacing_factor", type=float, default=1.2, help="How aggressively MIC circles suppress nearby candidates. Larger means more spacing.")
-    parser.add_argument("--invert", action="store_true", help="Use inverted thresholding inside BTH patchification.")
-    parser.add_argument("--no-invert", dest="invert", action="store_false", help="Disable inverted thresholding inside BTH patchification.")
-    parser.set_defaults(invert=None)
     parser.add_argument("--blur_ksize", type=int, default=3, help="Gaussian blur kernel size before edge extraction.")
     parser.add_argument("--canny_t1", type=int, default=100, help="Lower Canny threshold when method=canny.")
-    parser.add_argument("--bth_threshold", type=int, default=45, help="Threshold for BTH edge extraction when method=bth.")
     parser.add_argument("--save_probability", action="store_true", help="Save grayscale probability maps alongside binary masks.")
     parser.add_argument("--mask_threshold", type=float, default=127.0, help="Threshold used when input_mode=mask.")
     return parser
@@ -506,12 +491,6 @@ def main():
                 )
             else:
                 args.fixed_length = 256
-
-        if args.invert is None:
-            if ckpt_args.get("inv") is not None:
-                args.invert = bool(ckpt_args["inv"])
-            else:
-                args.invert = args.method == "bth"
 
         device = resolve_device(args.device)
         print(f"Using checkpoint: {weights}")

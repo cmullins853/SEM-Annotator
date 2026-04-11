@@ -129,10 +129,6 @@ class ImagePatchify:
         
         # Stochastic thresholds for 'forest' trees
         self.cannys = list(range(50, 151, 10))               # Canny: 50..150
-        self.bth_thresholds = list(range(15, 86, 10))        # BTH: 30..80
-        self.localvar_thresholds = list(range(20, 61, 10))   # LocalVar: 10..80
-        self.psd_thresholds = list(range(30, 51, 5))        # PSD: 30..50
-        self.wavelet_thresholds = list(range(5, 21, 5))    # Wavelet: 5..20
         
     def __call__(self, img_np):
         if img_np.ndim == 2:
@@ -152,27 +148,8 @@ class ImagePatchify:
                 canny_t1 = random.choice(self.cannys)
                 edges = cv2.Canny(blurred, canny_t1, canny_t1 * 2)
                 
-            elif self.method == 'bth':
-                # Black Top-Hat: High response for dark details
-                kernel_size = 25
-                se = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (kernel_size, kernel_size))
-                closed = cv2.morphologyEx(grey_img, cv2.MORPH_CLOSE, se)
-                bth = cv2.subtract(closed, grey_img).astype(np.float32)
-                
-                # Normalize to 0-255
-                mn, mx = bth.min(), bth.max()
-                if mx - mn > 1e-8:
-                    bth = (bth - mn) / (mx - mn) * 255.0
-                
-                # Threshold to binary map. Default invert for BTH is True.
-                do_invert = self.invert if self.invert is not None else True
-                thresh_type = cv2.THRESH_BINARY_INV if do_invert else cv2.THRESH_BINARY
-                
-                t = random.choice(self.bth_thresholds)
-                _, edges = cv2.threshold(bth.astype(np.uint8), t, 255, thresh_type)
-                # Ensure pure black areas are ignored (masked to 0)
-                edges[grey_img == 0] = 0
-           
+            elif self.method == 'base':
+                edges = grey_img # Base method doesn't use edges
             else:
                 raise ValueError(f"Unknown ImagePatchify method: {self.method}")
 

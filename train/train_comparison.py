@@ -909,80 +909,16 @@ def run_training_session(args, fixed_length, seed, output_dir, device):
         print(f"   - Val Split   : {val_bg}/{val_total} images with no labels ({ (val_bg/max(1,val_total))*100:.1f}%)")
         print(f"   - Test Split  : {test_bg}/{test_total} images with no labels ({ (test_bg/max(1,test_total))*100:.1f}%)")
     # ----------------------------------
+    # ----------------------------------
 
-    if args.method == "bth":
-        args.inv = False
-    elif args.method == "localvar":
-        args.inv = True
-    elif args.method in ["wavelet"]:
-        args.inv = True
-    
-    is_ap_texture = args.method.startswith("AP-texture-")
-    if is_ap_texture:
-        # Resolve preprocessed directory
-        method_short = args.method.replace("AP-texture-", "")
-        # Use user-provided preprocessed_dir if it points to a specific method folder, 
-        # otherwise build it from preprocessed_dir root.
-        if os.path.exists(os.path.join(args.preprocessed_dir, "debug_quadtree")):
-            preproc_dir = args.preprocessed_dir
-        else:
-            unseeded_name = f"{method_short}_cov{args.coverage}"
-            preproc_dir = os.path.join(args.preprocessed_dir, unseeded_name)
-            
-        if accelerator.is_main_process:
-            print(f"Loading preprocessed data from: {preproc_dir}")
-        
-        # Filter all_image_paths to only those that exist in preproc_dir
-        existing_images = []
-        for img_p in all_image_paths:
-            base = os.path.splitext(os.path.basename(img_p))[0]
-            if os.path.exists(os.path.join(preproc_dir, base + ".npz")):
-                existing_images.append(img_p)
-        
-        if len(existing_images) == 0:
-            if accelerator.is_main_process:
-                print(f"Warning: No preprocessed .npz files found in {preproc_dir}")
-                print(f"Checked for {len(all_image_paths)} images. Example missing: {os.path.basename(all_image_paths[0]) if all_image_paths else 'N/A'}")
-        else:
-            if accelerator.is_main_process:
-                print(f"Found {len(existing_images)}/{len(all_image_paths)} preprocessed files.")
-            
-        # Re-index based on existing files only
-        all_image_paths = existing_images
-        n_total = len(all_image_paths)
-        if n_total == 0:
-            if accelerator.is_main_process:
-                print("No valid preprocessed data found. Skipping run.")
-            return
-            
-        # Re-generate indices for the filtered set
-        indices = list(range(n_total))
-        random.Random(seed).shuffle(indices)
-        
-        n_test  = int(math.floor(n_total * test_split)) if test_split > 0 else 0
-        n_val   = int(math.floor(n_total * val_split))  if val_split > 0 else 0
-        n_train = max(0, n_total - n_val - n_test)
+    # Online SHF (Canny, Base, etc.)
+    full_dataset_train = OnlineSHFDataset(args.image_dir, args.mask_dir, target_size, fixed_length, patch_size, is_train=True,  method=args.method, invert=False, bgr=args.bgr, brightness_jitter=args.brightness_jitter)
+    full_dataset_val   = OnlineSHFDataset(args.image_dir, args.mask_dir, target_size, fixed_length, patch_size, is_train=False, method=args.method, invert=False, bgr=args.bgr, brightness_jitter=args.brightness_jitter)
+    full_dataset_test  = OnlineSHFDataset(args.image_dir, args.mask_dir, target_size, fixed_length, patch_size, is_train=False, method=args.method, invert=False, bgr=args.bgr, brightness_jitter=args.brightness_jitter)
 
-        train_idx = indices[:n_train]
-        val_idx   = indices[n_train : n_train + n_val]
-        test_idx  = indices[n_train + n_val : n_train + n_val + n_test]
-        
-        train_paths = repeat_items([all_image_paths[i] for i in train_idx], args.train_repeat_factor)
-        val_paths = [all_image_paths[i] for i in val_idx]
-        test_paths = [all_image_paths[i] for i in test_idx]
-
-        train_dataset = PreprocessedSHFDataset(preproc_dir, train_paths, args.mask_dir, target_size, fixed_length, patch_size, is_train=True, bgr=args.bgr, brightness_jitter=args.brightness_jitter)
-        val_dataset   = PreprocessedSHFDataset(preproc_dir, val_paths,   args.mask_dir, target_size, fixed_length, patch_size, is_train=False, bgr=args.bgr, brightness_jitter=args.brightness_jitter)
-        test_dataset  = PreprocessedSHFDataset(preproc_dir, test_paths,  args.mask_dir, target_size, fixed_length, patch_size, is_train=False, bgr=args.bgr, brightness_jitter=args.brightness_jitter)
-    else:
-        # Online SHF (Canny, BTH, etc.)
-        full_dataset_train = OnlineSHFDataset(args.image_dir, args.mask_dir, target_size, fixed_length, patch_size, is_train=True,  method=args.method, invert=args.inv, bgr=args.bgr, brightness_jitter=args.brightness_jitter)
-        full_dataset_val   = OnlineSHFDataset(args.image_dir, args.mask_dir, target_size, fixed_length, patch_size, is_train=False, method=args.method, invert=args.inv, bgr=args.bgr, brightness_jitter=args.brightness_jitter)
-        full_dataset_test  = OnlineSHFDataset(args.image_dir, args.mask_dir, target_size, fixed_length, patch_size, is_train=False, method=args.method, invert=args.inv, bgr=args.bgr, brightness_jitter=args.brightness_jitter)
-
-        train_dataset = Subset(full_dataset_train, repeat_items(train_idx, args.train_repeat_factor))
-        val_dataset   = Subset(full_dataset_val,   val_idx)  if n_val > 0 else None
-        test_dataset  = Subset(full_dataset_test,  test_idx) if n_test > 0 else None
+    train_dataset = Subset(full_dataset_train, repeat_items(train_idx, args.train_repeat_factor))
+    val_dataset   = Subset(full_dataset_val,   val_idx)  if n_val > 0 else None
+    test_dataset  = Subset(full_dataset_test,  test_idx) if n_test > 0 else None
 
     loader = DataLoader(
         train_dataset,
@@ -1348,15 +1284,10 @@ def main():
         description="Train SHFVisionTransformer with automated iteration support."
     )
     # --- Method / data ---
-    parser.add_argument('--method', choices=['canny', 'bth', 'localvar', 'wavelet', 'base', 'AP-texture-localvar', 'AP-texture-bth', 'AP-texture-wavelet'], default='bth',
+    parser.add_argument('--method', choices=['canny', 'base'], default='base',
         help="Method used during preprocessing (must match preprocess_comparison.py --method). "
              "'base' = uniform 16×16 grid, no SHF.",
-    )                            
-    parser.add_argument('--inv', dest='inv', action='store_true',  default=None,
-                        help="Force THRESH_BINARY_INV (invert threshold) for texture methods.")
-    parser.add_argument('--no-inv', dest='inv', action='store_false',
-                        help="Force THRESH_BINARY (no inversion) for texture methods.")
-    parser.set_defaults(inv=None)
+    )
 
     parser.add_argument('--image-dir', default=r'E:\Connor\SHF Data\Tiffs\multiclass_dataset\images_tiles',
         help="Root directory where raw image tiles are located.",
@@ -1364,7 +1295,7 @@ def main():
     parser.add_argument('--mask-dir', default="./Xmas",
                         help="Path to full ground truth masks for proper evaluation.")
     parser.add_argument('--preprocessed-dir', default="E:/Connor/comparison_study",
-                        help="Path to preprocessed .npz files (used for AP-texture methods).")
+                        help="Path to preprocessed .npz files.")
     parser.add_argument('--bgr', action='store_true', help="Swap BGR channels to RGB upon loading (for datasets where channels are switched).")
     # --- MM-SHF-style coverage / target-size (must match preprocess run) ---
     parser.add_argument('--coverage', type=float, default=0.75,
@@ -1404,8 +1335,6 @@ def main():
     
     # --- Full Run / Iteration ---
     parser.add_argument('--full-run', action='store_true', help="Iterate over all methods and seeds for online training.")
-    parser.add_argument('--full-run-AP', action='store_true', help="Iterate over all preprocessed folders in --AP-root.")
-    parser.add_argument('--AP-root', default="E:/Connor/comparison_study", help="Root directory for preprocessed folders (used with --full-run-AP).")
     parser.add_argument('--coverages', type=float, nargs='+', help="Specific coverages to test (e.g. 0.5 0.75).")
     parser.add_argument('--fixed-lengths', type=int, nargs='+', help="Specific fixed lengths to test.")
     parser.add_argument('--seeds', type=int, nargs='+', help="Seeds to test (default: 2, 10, 40).")
@@ -1449,37 +1378,11 @@ def main():
     print(f"Image dir   : {args.image_dir}")
     print(f"Output base : {args.output_base}")
 
-    methods_to_test = ['canny', 'bth', 'localvar', 'wavelet', 'base']
+    methods_to_test = ['canny', 'base']
     
     runs = [] # List of (method, coverage, seed, preproc_dir)
     
-    if args.full_run_AP:
-        print(f"Scanning AP-root: {args.AP_root}")
-        if not os.path.exists(args.AP_root):
-            print(f"Error: AP-root does not exist: {args.AP_root}")
-            return
-            
-        seeds_to_test = args.seeds if args.seeds else [2, 10, 40]
-        folders = [f for f in os.listdir(args.AP_root) if os.path.isdir(os.path.join(args.AP_root, f))]
-        # Pattern: method_cov0.75 (ignoring legacy seed suffix as per user request)
-        pattern = re.compile(r"^([a-zA-Z0-9]+)_cov([0-9.]+)$")
-        
-        for folder in folders:
-            match = pattern.match(folder)
-            if match:
-                method_name = match.group(1)
-                coverage    = float(match.group(2))
-                
-                # Check if this looks like a valid AP directory (has .npz files)
-                full_path = os.path.join(args.AP_root, folder)
-                if glob(os.path.join(full_path, "*.npz")):
-                    # Support multiple seeds for each AP folder
-                    for seed in seeds_to_test:
-                        runs.append((f"AP-texture-{method_name}", coverage, seed, full_path))
-        
-        print(f"Discovered {len(runs)} valid AP runs ({len(runs)//len(seeds_to_test)} folders x {len(seeds_to_test)} seeds).")
-    
-    elif args.full_run:
+    if args.full_run:
         seeds_to_test     = args.seeds if args.seeds else [2, 10, 40]
         coverages_to_test = args.coverages if args.coverages else [args.coverage]
         for seed in seeds_to_test:
