@@ -1365,7 +1365,13 @@ def main():
                         help="Mixed precision mode when running with Hugging Face accelerate.")
     parser.add_argument('--grad-accumulation-steps', type=int, default=1,
                         help="Gradient accumulation steps when running with accelerate.")
+    parser.add_argument('--no-print', action='store_true', help="Disable all standard output printing.")
     args = parser.parse_args()
+
+    if getattr(args, 'no_print', False):
+        sys.stdout = open(os.devnull, 'w')
+        global tqdm
+        tqdm = lambda iterable, *args, **kwargs: iterable
 
     if args.target_compute is not None:
         args.target_compute = args.target_compute * 1000
