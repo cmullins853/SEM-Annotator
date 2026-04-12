@@ -1,5 +1,6 @@
 import argparse
 import json
+import re
 from pathlib import Path
 
 import cv2
@@ -12,6 +13,12 @@ from timm.data.constants import IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD
 
 from model.sam import SHFSAMEncoder
 from SHF.shf import FixedQuadTree
+
+try:
+    from depth_anything_remover import DepthAnythingPredictor
+    HAS_DEPTH_ANYTHING = True
+except ImportError:
+    HAS_DEPTH_ANYTHING = False
 from sam_polygon_diameters import (
     compute_metrics,
     draw_measurements,
@@ -96,8 +103,6 @@ def build_edge_map(image_rgb, method, blur_ksize, canny_t1):
 
     if method == "canny":
         edges = cv2.Canny(blurred, canny_t1, canny_t1 * 2)
-    elif method == "base":
-        edges = gray # Base method doesn't use edges
     else:
         raise ValueError(f"Unsupported method: {method}")
 
@@ -187,14 +192,20 @@ def find_default_weights():
     return candidates[0] if candidates else None
 
 
-def infer_method_from_weights(weights_path):
+def infer_params_from_weights(weights_path):
+    method = None
+    coverage = None
     for part in weights_path.parts[::-1]:
         lowered = part.lower()
-        if lowered.startswith("canny"):
-            return "canny"
-        if lowered.startswith("base"):
-            return "base"
-    return None
+        if method is None:
+            if "canny" in lowered:
+                method = "canny"
+        if coverage is None:
+            # Match cov0.3 or cov_0.3
+            match = re.search(r"cov_?(\d+\.?\d*)", lowered)
+            if match:
+                coverage = float(match.group(1))
+    return method, coverage
 
 
 def derive_fixed_length(target_size, patch_size, coverage, method):
@@ -317,6 +328,71 @@ def save_preview(preview, rows, methods, output_path, show_values=True, max_inst
     Image.fromarray(preview).save(output_path)
 
 
+def apply_depth_mask(image_rgb, depth_predictor, threshold, invert, label_pct=0.0):
+    """Run Depth Anything on an RGB image and return a masked copy.
+
+    label_pct: percentage of the image bottom to exclude from the depth model
+               (mirrors the interactive 'Label %' trackbar in depth_anything_remover.py),
+               so SEM scale bars don't pollute the depth map.
+    """
+    h, w = image_rgb.shape[:2]
+    crop_y = int(h * (1.0 - label_pct / 100.0)) if label_pct > 0 else h
+
+    # Only feed the non-label portion into the depth model
+    img_slice = image_rgb[:crop_y, :]
+    img_bgr = cv2.cvtColor(img_slice, cv2.COLOR_RGB2BGR)
+    d_slice = depth_predictor.predict(img_bgr)
+
+    # Pad depth map back to full image height
+    depth_map = np.zeros((h, w), dtype=np.uint8)
+    depth_map[:crop_y, :] = d_slice
+
+    if invert:
+        mask = (depth_map > threshold).astype(np.uint8) * 255
+    else:
+        mask = (depth_map < threshold).astype(np.uint8) * 255
+
+    # Always blank out the label strip regardless of threshold
+    if crop_y < h:
+        mask[crop_y:, :] = 0
+
+    masked = cv2.bitwise_and(image_rgb, image_rgb, mask=mask)
+    return masked
+
+
+def tile_image(image_rgb, tile_size):
+    """Yield (row, col, tile_rgb, (top, left, bottom, right)) for each tile."""
+    h, w = image_rgb.shape[:2]
+    num_rows = (h + tile_size - 1) // tile_size
+    num_cols = (w + tile_size - 1) // tile_size
+    for r in range(num_rows):
+        for c in range(num_cols):
+            top = r * tile_size
+            left = c * tile_size
+            bottom = min(top + tile_size, h)
+            right = min(left + tile_size, w)
+            yield r, c, image_rgb[top:bottom, left:right], (top, left, bottom, right)
+
+
+def _infer_tile(tile_rgb, model, device, args):
+    """Run SAM inference on a single tile; returns prob map in tile coords."""
+    th, tw = tile_rgb.shape[:2]
+    resized = cv2.resize(tile_rgb, (args.target_size, args.target_size), interpolation=cv2.INTER_CUBIC)
+    batch = build_inference_batch(
+        resized,
+        fixed_length=args.fixed_length,
+        patch_size=args.patch_size,
+        method=args.method,
+        blur_ksize=args.blur_ksize,
+        canny_t1=args.canny_t1,
+    )
+    batch = {k: v.to(device) for k, v in batch.items()}
+    with torch.no_grad():
+        probs = torch.sigmoid(model(batch)["logits"])
+        pred = reconstruct_batch_preds(probs, batch["coords"], args.target_size)[0].cpu().numpy()
+    return cv2.resize(pred, (tw, th), interpolation=cv2.INTER_LINEAR)
+
+
 def process_image(
     image_path,
     model,
@@ -324,11 +400,66 @@ def process_image(
     output_dirs,
     args,
     aggregate_rows,
+    depth_predictor=None,
 ):
     original_rgb = load_image_rgb(image_path)
     orig_h, orig_w = original_rgb.shape[:2]
-    resized_rgb = cv2.resize(original_rgb, (args.target_size, args.target_size), interpolation=cv2.INTER_CUBIC)
 
+    # Optional depth-based background removal
+    if depth_predictor is not None:
+        working_rgb = apply_depth_mask(
+            original_rgb, depth_predictor,
+            args.depth_threshold, args.depth_invert,
+            label_pct=args.depth_label_pct,
+        )
+    else:
+        working_rgb = original_rgb
+
+    # Tiling branch — save each tile individually, no full-image reconstruction
+    if args.tile_size is not None and (orig_h > args.tile_size or orig_w > args.tile_size):
+        total_polygons = 0
+        for r, c, tile_rgb, (top, left, bottom, right) in tile_image(working_rgb, args.tile_size):
+            tile_prob = _infer_tile(tile_rgb, model, device, args)
+            tile_binary = (tile_prob >= args.threshold).astype(np.uint8)
+            tile_clean, tile_contours = clean_binary_mask(tile_binary, args.min_area)
+            tile_stem = f"{image_path.stem}_tile_{r}_{c}"
+
+            tile_rows = build_rows(tile_contours, image_path, args.diameter_method, aggregate_rows)
+            total_polygons += len(tile_rows)
+
+            Image.fromarray((tile_clean * 255).astype(np.uint8)).save(
+                output_dirs["masks"] / f"{tile_stem}_mask.png"
+            )
+
+            if args.save_probability:
+                Image.fromarray(np.clip(tile_prob * 255.0, 0, 255).astype(np.uint8)).save(
+                    output_dirs["probabilities"] / f"{tile_stem}_prob.png"
+                )
+
+            save_polygon_json(
+                output_dirs["polygons"] / f"{tile_stem}_polygons.json",
+                image_path,
+                tile_rows,
+                args.diameter_method,
+                args.threshold,
+            )
+
+            tile_preview = overlay_mask_fill(tile_rgb.copy(), tile_contours)
+            save_preview(
+                tile_preview,
+                tile_rows,
+                args.overlay_methods,
+                output_dirs["overlays"] / f"{tile_stem}_overlay.png",
+                show_values=(args.overlay_labels == "values"),
+                max_instances_per_method=args.max_instances_per_method,
+                mic_spacing_factor=args.mic_spacing_factor,
+            )
+
+        print(f"{image_path.name}: {total_polygons} polygon(s) across tiles")
+        return
+
+    # Single-pass (no tiling) — save one mask/overlay per image
+    resized_rgb = cv2.resize(working_rgb, (args.target_size, args.target_size), interpolation=cv2.INTER_CUBIC)
     batch = build_inference_batch(
         resized_rgb,
         fixed_length=args.fixed_length,
@@ -338,19 +469,19 @@ def process_image(
         canny_t1=args.canny_t1,
     )
     batch = {k: v.to(device) for k, v in batch.items()}
-
     with torch.no_grad():
         probs = torch.sigmoid(model(batch)["logits"])
         pred_resized = reconstruct_batch_preds(probs, batch["coords"], args.target_size)[0].cpu().numpy()
-
     prob_orig = cv2.resize(pred_resized, (orig_w, orig_h), interpolation=cv2.INTER_LINEAR)
+
     binary_orig = (prob_orig >= args.threshold).astype(np.uint8)
     clean_mask, contours = clean_binary_mask(binary_orig, args.min_area)
 
     rows = build_rows(contours, image_path, args.diameter_method, aggregate_rows)
 
-    mask_out = (clean_mask * 255).astype(np.uint8)
-    Image.fromarray(mask_out).save(output_dirs["masks"] / f"{image_path.stem}_mask.png")
+    Image.fromarray((clean_mask * 255).astype(np.uint8)).save(
+        output_dirs["masks"] / f"{image_path.stem}_mask.png"
+    )
 
     if args.save_probability:
         Image.fromarray(np.clip(prob_orig * 255.0, 0, 255).astype(np.uint8)).save(
@@ -416,11 +547,11 @@ def build_arg_parser():
     parser.add_argument("--input_mode", choices=["image", "mask"], default="image", help="Use raw images with SAM inference or consume preprocessed masks directly.")
     parser.add_argument("--output_dir", default="sam_inference_output", help="Directory for masks, polygons, overlays, and CSV output.")
     parser.add_argument("--weights", help="Path to best_model_sam.pth. If omitted, the script tries to find one under SEM_comp.")
-    parser.add_argument("--method", choices=["canny", "base"], help="Patchification method used during training. If omitted, inferred from checkpoint path when possible.")
+    parser.add_argument("--method", choices=["canny"], help="Patchification method used during training. If omitted, inferred from checkpoint path when possible.")
     parser.add_argument("--device", default="auto", help="Torch device, e.g. auto, cpu, cuda:0.")
     parser.add_argument("--target_size", type=int, help="Inference size expected by the checkpoint.")
     parser.add_argument("--patch_size", type=int, help="Patch size used during training.")
-    parser.add_argument("--fixed_length", type=int, help="Token count used during training.")
+    parser.add_argument("--coverage", type=float, help="Coverage ratio used during training (e.g. 0.3).")
     parser.add_argument("--threshold", type=float, default=0.5, help="Probability threshold for the predicted mask.")
     parser.add_argument("--min_area", type=float, default=16.0, help="Discard polygons smaller than this area in pixels.")
     parser.add_argument("--pixel_size", type=float, default=1.0, help="Physical size of one pixel.")
@@ -438,6 +569,15 @@ def build_arg_parser():
     parser.add_argument("--canny_t1", type=int, default=100, help="Lower Canny threshold when method=canny.")
     parser.add_argument("--save_probability", action="store_true", help="Save grayscale probability maps alongside binary masks.")
     parser.add_argument("--mask_threshold", type=float, default=127.0, help="Threshold used when input_mode=mask.")
+    # Depth Anything preprocessing
+    parser.add_argument("--depth_preprocess", action="store_true", help="Apply Depth Anything V2 background removal before inference.")
+    parser.add_argument("--depth_threshold", type=int, default=80, help="Depth cutoff value (0-255) for background masking.")
+    parser.add_argument("--depth_invert", action="store_true", default=True, help="Invert depth mask: keep pixels ABOVE threshold (default True).")
+    parser.add_argument("--no-depth_invert", dest="depth_invert", action="store_false", help="Keep pixels BELOW depth threshold instead.")
+    parser.add_argument("--depth_label_pct", type=float, default=12.0, help="Exclude the bottom N%% of the image from depth estimation (e.g. 12 for a 12%% scale-bar strip).")
+    parser.add_argument("--depth_model", type=str, default="depth-anything/Depth-Anything-V2-Small-hf", help="HuggingFace model ID for Depth Anything V2.")
+    # Tiling
+    parser.add_argument("--tile_size", type=int, default=None, help="If set, split each image into tiles of this pixel size before inference.")
     return parser
 
 
@@ -469,9 +609,10 @@ def main():
 
         state_dict, ckpt_args = load_checkpoint_bundle(str(weights))
 
+        inferred_method, inferred_coverage = infer_params_from_weights(weights)
+
         if args.method is None:
-            inferred = ckpt_args.get("method") or infer_method_from_weights(weights)
-            args.method = inferred or "canny"
+            args.method = ckpt_args.get("method") or inferred_method or "canny"
 
         if args.target_size is None:
             args.target_size = int(ckpt_args.get("target_size", 1024))
@@ -479,18 +620,23 @@ def main():
         if args.patch_size is None:
             args.patch_size = int(ckpt_args.get("patch_size", 16))
 
-        if args.fixed_length is None:
-            if "fixed_length" in ckpt_args:
-                args.fixed_length = int(ckpt_args["fixed_length"])
-            elif "coverage" in ckpt_args:
-                args.fixed_length = derive_fixed_length(
-                    target_size=args.target_size,
-                    patch_size=args.patch_size,
-                    coverage=float(ckpt_args["coverage"]),
-                    method=args.method,
-                )
-            else:
-                args.fixed_length = 256
+        if args.coverage is None:
+            # Priority: ckpt_args['coverage'] > inferred from path > default 0.3
+            args.coverage = ckpt_args.get("coverage") or inferred_coverage
+
+        # Finally derive fixed_length from coverage
+        if "fixed_length" in ckpt_args and args.coverage is None:
+            args.fixed_length = int(ckpt_args["fixed_length"])
+        else:
+            coverage_val = args.coverage if args.coverage is not None else 0.3
+            args.fixed_length = derive_fixed_length(
+                target_size=args.target_size,
+                patch_size=args.patch_size,
+                coverage=float(coverage_val),
+                method=args.method,
+            )
+
+
 
         device = resolve_device(args.device)
         print(f"Using checkpoint: {weights}")
@@ -501,10 +647,22 @@ def main():
     else:
         print("Using preprocessed mask mode")
 
+    # Lazy-init depth predictor if requested
+    depth_predictor = None
+    if args.input_mode == "image" and args.depth_preprocess:
+        if not HAS_DEPTH_ANYTHING:
+            raise ImportError("depth_anything_remover.py not found or 'transformers' not installed.")
+        print(f"Loading Depth Anything model: {args.depth_model}")
+        print(f"Depth threshold={args.depth_threshold}, invert={args.depth_invert}, label_pct={args.depth_label_pct}")
+        depth_predictor = DepthAnythingPredictor(args.depth_model)
+
+    if args.tile_size is not None:
+        print(f"Tiling enabled: tile_size={args.tile_size}")
+
     all_rows = []
     for image_path in image_paths:
         if args.input_mode == "image":
-            process_image(image_path, model, device, output_dirs, args, all_rows)
+            process_image(image_path, model, device, output_dirs, args, all_rows, depth_predictor=depth_predictor)
         else:
             process_mask_image(image_path, output_dirs, args, all_rows)
 
