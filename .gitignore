@@ -1,1 +1,37 @@
 /SEM_preprocessed/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Virtual environment
+.venv/
+venv/
+env/
+ENV/
+
+# Build artifacts
+*.egg-info/
+dist/
+build/
+
+#ignore ide things
+#.idea/
+
+#ignore LLM
+/.claude
+
+#ignore packaging detial
+*.egg
+
+#ignore image files
+*.png
+*.svg
+*.tiff
+
+#ignore spec files
+/spec
+
