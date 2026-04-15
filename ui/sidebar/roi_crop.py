@@ -13,18 +13,18 @@ def build_roi_crop(state: AppState) -> None:
             ui.label(
                 'Exclude bottom N% of image from analysis.\n'
                 'Useful for SEM metadata bars.'
-            ).classes('text-xs text-gray-400')
+            ).classes('text-xs fs-text-muted')
 
             # ── Bottom crop slider ────────────────────────────────────────────
             with ui.row().classes('items-center gap-2 w-full'):
-                ui.label('Crop:').classes('text-xs text-gray-400 w-8')
+                ui.label('Crop:').classes('text-xs fs-text-muted w-8')
                 crop_slider = ui.slider(min=0, max=50, step=1, value=0).props(
-                    'color=teal label').classes('flex-1')
-                crop_pct_label = ui.label('0%').classes('text-xs text-teal-300 w-8 text-right')
+                    'color=primary label').classes('flex-1')
+                crop_pct_label = ui.label('0%').classes('text-xs fs-text-primary-dim w-8 text-right')
 
             # ── Preview toggle ────────────────────────────────────────────────
             with ui.row().classes('items-center gap-2'):
-                preview_switch = ui.switch('Show excluded region').props('color=teal dense')
+                preview_switch = ui.switch('Show excluded region').props('color=primary dense')
                 preview_switch.set_value(False)
 
             def _update_roi():

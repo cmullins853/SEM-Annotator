@@ -10,7 +10,7 @@ def build_pipeline_log(state: AppState) -> None:
 
         with ui.column().classes('w-full gap-1 pt-1'):
             # Progress bar — shown while pipeline runs
-            progress = ui.linear_progress(value=0).props('color=teal indeterminate').classes(
+            progress = ui.linear_progress(value=0).props('color=primary indeterminate').classes(
                 'w-full').style('height: 4px')
             progress.set_visibility(False)
 

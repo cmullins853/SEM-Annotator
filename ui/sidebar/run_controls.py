@@ -11,24 +11,24 @@ def build_run_controls(state: AppState) -> None:
 
             # ── Scope toggle ──────────────────────────────────────────────────
             with ui.row().classes('items-center gap-2'):
-                ui.label('Scope:').classes('text-xs text-gray-400')
+                ui.label('Scope:').classes('text-xs fs-text-muted')
                 ui.toggle(
                     ['Single Image', 'Batch Directory'],
                     value='Single Image',
                     on_change=lambda e: setattr(
                         state, 'batch_mode', e.value == 'Batch Directory'
                     ),
-                ).props('dense color=teal').classes('text-xs')
+                ).props('dense color=primary').classes('text-xs')
 
             # ── Step-through ──────────────────────────────────────────────────
             with ui.row().classes('items-center gap-2'):
                 ui.switch(
                     'Step-through mode',
                     on_change=lambda e: setattr(state, 'step_through', e.value),
-                ).props('color=teal dense')
+                ).props('color=primary dense')
 
             # ── Run status hint ───────────────────────────────────────────────
-            run_hint = ui.label('').classes('text-xs text-gray-500 italic')
+            run_hint = ui.label('').classes('text-xs fs-text-subtle italic')
 
             def _update_hint():
                 if not state.selected_image:

@@ -11,15 +11,15 @@ def build_pipeline_settings(state: AppState) -> None:
         with ui.column().classes('w-full gap-3 pt-1'):
 
             # ── Depth threshold ───────────────────────────────────────────────
-            ui.label('Depth Threshold').classes('text-xs text-gray-400')
+            ui.label('Depth Threshold').classes('text-xs fs-text-muted')
 
             with ui.row().classes('items-center gap-2'):
-                auto_check = ui.checkbox('Auto (Otsu)', value=True).props('color=teal dense')
+                auto_check = ui.checkbox('Auto (Otsu)', value=True).props('color=primary dense')
 
             with ui.row().classes('items-center gap-2 w-full'):
                 threshold_slider = ui.slider(min=0, max=255, step=1, value=128).props(
-                    'color=teal label').classes('flex-1')
-                threshold_label = ui.label('128').classes('text-xs text-teal-300 w-8 text-right')
+                    'color=primary label').classes('flex-1')
+                threshold_label = ui.label('128').classes('text-xs fs-text-primary-dim w-8 text-right')
 
             threshold_slider.set_enabled(False)
 

@@ -23,18 +23,18 @@ def build_page(state: AppState) -> None:
     # ── Model warning banner (hidden until startup check fires) ────────────────
     with ui.element('div').classes('w-full') as banner:
         with ui.row().classes(
-                'w-full items-center gap-2 px-4 py-2 bg-amber-950 border-b border-amber-800'):
-            ui.icon('warning', color='amber-400').classes('text-amber-400')
+                'w-full items-center gap-2 px-4 py-2 fs-bg-warn border-b fs-border-warn'):
+            ui.icon('warning', color='warning').classes('fs-text-warn-icon')
             ui.label(
                 'Model weights not found — pipeline disabled. '
                 'See models/README.md for setup.'
-            ).classes('text-amber-200 text-sm')
+            ).classes('fs-text-warn text-sm')
     banner.set_visibility(False)
     state.model_banner = banner
 
     # ── Header ─────────────────────────────────────────────────────────────────
     with ui.header(elevated=True).classes(
-            'bg-[#16213e] border-b border-[#2dd4bf]/20 items-center py-2'):
+            'fs-bg-surface border-b fs-border-primary items-center py-2'):
         build_header(state)
 
     # ── Left drawer — build image viewer FIRST so callbacks are on state ───────
@@ -43,7 +43,7 @@ def build_page(state: AppState) -> None:
     # definition order, so we can define the center content before the drawer.
 
     # ── Center content (defines callbacks on state) ────────────────────────────
-    with ui.column().classes('w-full min-h-screen bg-[#1a1a2e] p-4 gap-4'):
+    with ui.column().classes('w-full min-h-screen fs-bg-main p-4 gap-4'):
 
         with ui.tabs().classes('w-full') as tabs:
             img_tab = ui.tab('IMAGE', icon='image')
@@ -69,7 +69,7 @@ def build_page(state: AppState) -> None:
 
     # ── Left drawer (sidebar) — built AFTER image_viewer sets state callbacks ──
     with ui.left_drawer(value=True, fixed=True, bordered=True).classes(
-            'bg-[#16213e] overflow-y-auto py-3 px-2 gap-2'):
+            'fs-bg-surface overflow-y-auto py-3 px-2 gap-2'):
         build_data_directory(state)
         build_scale_calibration(state)
         build_roi_crop(state)
@@ -87,7 +87,7 @@ def build_page(state: AppState) -> None:
     # ── FAB — Run Pipeline (fixed bottom-right) ────────────────────────────────
     with ui.page_sticky(position='bottom-right', x_offset=18, y_offset=18):
         run_fab = ui.button('Run Pipeline', icon='play_arrow').props(
-            'fab color=teal').classes('shadow-lg')
+            'fab color=primary').classes('shadow-lg')
         run_fab.set_enabled(False)
 
         def _update_fab():

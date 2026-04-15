@@ -32,6 +32,6 @@ build/
 *.svg
 *.tiff
 
-#ignore spec files
-/spec
+#my secret sauce
+#/spec
 

@@ -12,25 +12,25 @@ def build_scale_calibration(state: AppState) -> None:
 
             # ── Lock mode ──────────────────────────────────────────────────────
             with ui.row().classes('items-center gap-2'):
-                ui.label('Mode:').classes('text-xs text-gray-400')
-                ui.toggle(
-                    ['Per-image', 'Lock for dir'],
-                    value='Per-image',
+                ui.label('Per-image').classes('text-xs fs-text-muted')
+                ui.switch(
+                    'Apply to all',
+                    value=False,
                     on_change=lambda e: setattr(
                         state, 'scale_mode',
-                        'locked' if e.value == 'Lock for dir' else 'per-image'
+                        'locked' if e.value else 'per-image'
                     ),
-                ).props('dense color=teal').classes('text-xs')
+                ).props('dense color=primary').classes('text-xs fs-text-muted')
 
             # ── Pixel distance (read-only, filled after draw) ──────────────────
             with ui.row().classes('items-center gap-2 w-full'):
-                ui.label('Pixel dist:').classes('text-xs text-gray-400 w-16 shrink-0')
+                ui.label('Pixel dist:').classes('text-xs fs-text-muted w-16 shrink-0')
                 px_dist_label = ui.label('—').classes(
-                    'text-sm font-mono text-teal-300 flex-1')
+                    'text-sm font-mono fs-text-primary-dim flex-1')
 
             # ── Known real-world length ────────────────────────────────────────
             with ui.row().classes('items-center gap-2 w-full'):
-                ui.label('Known (µm):').classes('text-xs text-gray-400 w-16 shrink-0')
+                ui.label('Known (µm):').classes('text-xs fs-text-muted w-16 shrink-0')
                 known_length_input = ui.number(
                     value=None, min=0, step=0.1, format='%.3f',
                     placeholder='e.g. 10.0',
@@ -38,7 +38,7 @@ def build_scale_calibration(state: AppState) -> None:
 
             # ── Computed µm/px ─────────────────────────────────────────────────
             with ui.row().classes('items-center gap-2 w-full'):
-                ui.label('Scale:').classes('text-xs text-gray-400 w-16 shrink-0')
+                ui.label('Scale:').classes('text-xs fs-text-muted w-16 shrink-0')
                 scale_value_input = ui.number(
                     value=None, min=0, step=0.00001, format='%.5f',
                     placeholder='auto-calc',
@@ -52,7 +52,7 @@ def build_scale_calibration(state: AppState) -> None:
             # State C (drawn):     [Retry]  [Confirm Scale]
 
             draw_btn = ui.button('Draw Scale Line', icon='edit').props(
-                'color=teal outline').classes('w-full')
+                'color=primary outline').classes('w-full')
 
             cancel_btn = ui.button('Cancel', icon='close').props(
                 'color=negative outline').classes('w-full')
@@ -68,10 +68,10 @@ def build_scale_calibration(state: AppState) -> None:
 
             # ── Status ─────────────────────────────────────────────────────────
             with ui.row().classes('items-center gap-2 mt-1'):
-                ui.label('Status:').classes('text-xs text-gray-400')
+                ui.label('Status:').classes('text-xs fs-text-muted')
                 status_label = ui.label('Not Set').classes(
                     'text-xs font-semibold px-2 py-0.5 rounded '
-                    'bg-amber-900 text-amber-300')
+                    'fs-bg-warn-status fs-text-warn-status')
 
             # ── Button state helpers ────────────────────────────────────────────
             def _show_idle():
@@ -166,8 +166,8 @@ def build_scale_calibration(state: AppState) -> None:
                 if state.scale_confirmed and state.scale_um_per_px:
                     status_label.set_text(f'{state.scale_um_per_px:.5f} µm/px  ✓')
                     status_label.classes(
-                        remove='bg-amber-900 text-amber-300',
-                        add='bg-emerald-900 text-emerald-300')
+                        remove='fs-bg-warn-status fs-text-warn-status',
+                        add='fs-bg-ok-status fs-text-ok')
                     scale_value_input.set_value(round(state.scale_um_per_px, 6))
                     if state.scale_pixel_distance:
                         px_dist_label.set_text(f'{state.scale_pixel_distance:.1f} px')
@@ -177,7 +177,7 @@ def build_scale_calibration(state: AppState) -> None:
                 else:
                     status_label.set_text('Not Set')
                     status_label.classes(
-                        remove='bg-emerald-900 text-emerald-300',
-                        add='bg-amber-900 text-amber-300')
+                        remove='fs-bg-ok-status fs-text-ok',
+                        add='fs-bg-warn-status fs-text-warn-status')
 
             state.on_scale_changed(_on_scale_changed)

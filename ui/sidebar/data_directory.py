@@ -11,7 +11,7 @@ def build_data_directory(state: AppState) -> None:
         with ui.column().classes('w-full gap-3 pt-1'):
 
             # ── Image directory ────────────────────────────────────────────────
-            ui.label('Image Directory').classes('text-xs text-gray-400')
+            ui.label('Image Directory').classes('text-xs fs-text-muted')
             with ui.row().classes('w-full gap-1 items-center'):
                 img_dir_input = ui.input(
                     placeholder='Path to SEM images...',
@@ -24,10 +24,10 @@ def build_data_directory(state: AppState) -> None:
                         state.set_image_dir(path)
 
                 ui.button(icon='folder_open', on_click=_browse_img).props(
-                    'flat dense color=teal')
+                    'flat dense color=accent').tooltip('Browse for images')
 
             # ── Output directory ───────────────────────────────────────────────
-            ui.label('Output Directory').classes('text-xs text-gray-400 mt-1')
+            ui.label('Output Directory').classes('text-xs fs-text-muted mt-1')
             with ui.row().classes('w-full gap-1 items-center'):
                 out_dir_input = ui.input(
                     placeholder='Path for results...',
@@ -40,10 +40,10 @@ def build_data_directory(state: AppState) -> None:
                         state.output_dir = path
 
                 ui.button(icon='folder_open', on_click=_browse_out).props(
-                    'flat dense color=teal')
+                    'flat dense color=primary')
 
             # ── Image selector ─────────────────────────────────────────────────
-            ui.label('Image').classes('text-xs text-gray-400 mt-1')
+            ui.label('Image').classes('text-xs fs-text-muted mt-1')
 
             image_select = ui.select(
                 options=[],
@@ -79,9 +79,9 @@ def build_data_directory(state: AppState) -> None:
                     state.set_selected_image(filename)
 
                 ui.button(icon='chevron_left', on_click=_prev).props(
-                    'flat dense color=teal').tooltip('Previous image')
+                    'flat dense color=primary').tooltip('Previous image')
                 ui.button(icon='chevron_right', on_click=_next).props(
-                    'flat dense color=teal').tooltip('Next image')
+                    'flat dense color=primary').tooltip('Next image')
 
             # ── Wire events ────────────────────────────────────────────────────
             def _refresh_dropdown():

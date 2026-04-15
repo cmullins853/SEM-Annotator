@@ -4,6 +4,7 @@ from nicegui import ui
 from nicegui.events import MouseEventArguments
 from state.app_state import AppState
 from backend.scale import pixel_distance as euclidean_dist, pixel_distance_horizontal
+from ui.theme import SCALE_COLOR, ROI_COLOR
 
 
 # ── LayerManager ───────────────────────────────────────────────────────────────
@@ -53,12 +54,13 @@ class LayerManager:
 def _scale_line_svg(x1: float, y1: float, x2: float, y2: float, px_dist: float) -> str:
     mx = (x1 + x2) / 2
     my = min(y1, y2) - 14
+    c = SCALE_COLOR
     return (
-        f'<circle cx="{x1:.1f}" cy="{y1:.1f}" r="5" fill="#00ff88" opacity="0.9"/>'
-        f'<circle cx="{x2:.1f}" cy="{y2:.1f}" r="5" fill="#00ff88" opacity="0.9"/>'
+        f'<circle cx="{x1:.1f}" cy="{y1:.1f}" r="5" fill="{c}" opacity="0.9"/>'
+        f'<circle cx="{x2:.1f}" cy="{y2:.1f}" r="5" fill="{c}" opacity="0.9"/>'
         f'<line x1="{x1:.1f}" y1="{y1:.1f}" x2="{x2:.1f}" y2="{y2:.1f}" '
-        f'stroke="#00ff88" stroke-width="2" stroke-dasharray="8,4" opacity="0.9"/>'
-        f'<text x="{mx:.1f}" y="{my:.1f}" fill="#00ff88" text-anchor="middle" '
+        f'stroke="{c}" stroke-width="2" stroke-dasharray="8,4" opacity="0.9"/>'
+        f'<text x="{mx:.1f}" y="{my:.1f}" fill="{c}" text-anchor="middle" '
         f'font-size="16" font-weight="bold" paint-order="stroke" '
         f'stroke="#000000" stroke-width="3">{px_dist:.1f} px</text>'
     )
@@ -69,11 +71,12 @@ def _roi_overlay_svg(w: int, h: int, crop_pct: float) -> str:
         return ''
     crop_y = int(h * (1.0 - crop_pct / 100.0))
     rect_h = h - crop_y
+    c = ROI_COLOR
     return (
         f'<rect x="0" y="{crop_y}" width="{w}" height="{rect_h}" '
-        f'fill="#ef4444" opacity="0.35"/>'
+        f'fill="{c}" opacity="0.35"/>'
         f'<line x1="0" y1="{crop_y}" x2="{w}" y2="{crop_y}" '
-        f'stroke="#ef4444" stroke-width="2" stroke-dasharray="10,5"/>'
+        f'stroke="{c}" stroke-width="2" stroke-dasharray="10,5"/>'
     )
 
 
@@ -101,11 +104,11 @@ def build_image_viewer(state: AppState) -> None:
         # ── Filename + zoom controls ───────────────────────────────────────────
         with ui.row().classes('w-full items-center justify-between px-1'):
             filename_label = ui.label('No image loaded').classes(
-                'text-xs text-gray-500 truncate max-w-[60%]')
+                'text-xs fs-text-subtle truncate max-w-[60%]')
             with ui.row().classes('items-center gap-1'):
                 ui.button(icon='zoom_out', on_click=lambda: _do_zoom(-25)).props(
                     'flat dense color=gray size=sm').tooltip('Zoom out  (−25%)')
-                zoom_label = ui.label('100%').classes('text-xs text-gray-400 w-10 text-center')
+                zoom_label = ui.label('100%').classes('text-xs fs-text-muted w-10 text-center')
                 ui.button(icon='zoom_in', on_click=lambda: _do_zoom(+25)).props(
                     'flat dense color=gray size=sm').tooltip('Zoom in  (+25%)')
                 ui.button(icon='fit_screen', on_click=lambda: _do_zoom(0)).props(
@@ -114,25 +117,25 @@ def build_image_viewer(state: AppState) -> None:
         # ── Drawing tips banner (hidden when not drawing) ──────────────────────
         tips_row = ui.row().classes(
             'w-full items-start gap-2 px-3 py-2 rounded '
-            'bg-teal-950 border border-teal-700 text-teal-200 text-xs'
+            'fs-bg-tip border fs-border-tip fs-text-tip text-xs'
         )
         with tips_row:
-            ui.icon('info', size='1rem').classes('text-teal-400 mt-0.5 shrink-0')
+            ui.icon('info', size='1rem').classes('fs-text-primary mt-0.5 shrink-0')
             with ui.column().classes('gap-0.5'):
                 ui.label('Scale bar drawing mode').classes('font-semibold')
                 tips_step = ui.label('Click the START point of the scale bar.').classes(
-                    'text-teal-300')
+                    'fs-text-primary-dim')
                 ui.label(
                     'Tip: Zoom in for accuracy. '
                     'Hold Shift to constrain line to horizontal.'
-                ).classes('text-teal-400 italic')
+                ).classes('fs-text-primary italic')
         tips_row.set_visibility(False)
 
         # ── Scrollable image container ─────────────────────────────────────────
         # No max-height at 100% — let the image's natural aspect ratio fill the
         # panel. max-height is applied only when zoomed so the page stays tidy.
         with ui.element('div').classes(
-                'w-full rounded border border-gray-700 overflow-auto bg-black'
+                'w-full rounded border fs-border-muted overflow-auto bg-black'
         ).style('cursor: default;') as scroll_div:
 
             img = ui.interactive_image(
@@ -172,7 +175,7 @@ def build_image_viewer(state: AppState) -> None:
             _draw['pt1'] = (x, y)
             layer_mgr.set_layer(
                 'scale',
-                f'<circle cx="{x:.1f}" cy="{y:.1f}" r="5" fill="#00ff88" opacity="0.9"/>'
+                f'<circle cx="{x:.1f}" cy="{y:.1f}" r="5" fill="{SCALE_COLOR}" opacity="0.9"/>'
             )
             tips_step.set_text('Click the END point of the scale bar.')
         else:
