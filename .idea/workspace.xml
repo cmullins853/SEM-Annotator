@@ -4,23 +4,7 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="c8c45db5-c6d3-4989-b3c4-f3609e5b7bd3" name="Changes" comment="">
-      <change beforePath="$PROJECT_DIR$/.gitignore" beforeDir="false" afterPath="$PROJECT_DIR$/.gitignore" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/ui/center/depth_tab.py" beforeDir="false" afterPath="$PROJECT_DIR$/ui/center/depth_tab.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/ui/center/image_viewer.py" beforeDir="false" afterPath="$PROJECT_DIR$/ui/center/image_viewer.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/ui/center/results_tab.py" beforeDir="false" afterPath="$PROJECT_DIR$/ui/center/results_tab.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/ui/center/segmentation_tab.py" beforeDir="false" afterPath="$PROJECT_DIR$/ui/center/segmentation_tab.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/ui/header.py" beforeDir="false" afterPath="$PROJECT_DIR$/ui/header.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/ui/layout.py" beforeDir="false" afterPath="$PROJECT_DIR$/ui/layout.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/ui/pipeline_log.py" beforeDir="false" afterPath="$PROJECT_DIR$/ui/pipeline_log.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/ui/sidebar/data_directory.py" beforeDir="false" afterPath="$PROJECT_DIR$/ui/sidebar/data_directory.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/ui/sidebar/pipeline_settings.py" beforeDir="false" afterPath="$PROJECT_DIR$/ui/sidebar/pipeline_settings.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/ui/sidebar/roi_crop.py" beforeDir="false" afterPath="$PROJECT_DIR$/ui/sidebar/roi_crop.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/ui/sidebar/run_controls.py" beforeDir="false" afterPath="$PROJECT_DIR$/ui/sidebar/run_controls.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/ui/sidebar/scale_calibration.py" beforeDir="false" afterPath="$PROJECT_DIR$/ui/sidebar/scale_calibration.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/ui/theme.py" beforeDir="false" afterPath="$PROJECT_DIR$/ui/theme.py" afterDir="false" />
-    </list>
+    <list default="true" id="c8c45db5-c6d3-4989-b3c4-f3609e5b7bd3" name="Changes" comment="" />
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
@@ -102,7 +86,7 @@
       <option name="presentableId" value="Default" />
       <updated>1774353699791</updated>
       <workItem from="1776204192969" duration="5826000" />
-      <workItem from="1776218402729" duration="3980000" />
+      <workItem from="1776218402729" duration="4019000" />
     </task>
     <servers />
   </component>
