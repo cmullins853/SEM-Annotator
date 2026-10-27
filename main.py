@@ -1,57 +1,51 @@
+"""FiberSight entry point: `python main.py [--debug]` (--debug skips the weights check)."""
 import sys
-import io
-import urllib.parse
+from pathlib import Path
+
 from fastapi import Response
-from nicegui import ui, app as nicegui_app
-from state.app_state import AppState
-from ui.layout import build_page
-from backend.models import check_models_startup
+from fastapi.responses import FileResponse
+from nicegui import app, run, ui
 
-
-@nicegui_app.get('/image')
-async def serve_image(path: str):
-    """Serve any local image file as PNG — converts TIFF for browser compatibility."""
-    from nicegui import run as nicegui_run
-
-    def _load() -> bytes | None:
-        from PIL import Image
-        decoded = urllib.parse.unquote(path)
-        try:
-            with Image.open(decoded) as im:
-                buf = io.BytesIO()
-                im.convert('RGB').save(buf, format='PNG')
-                return buf.getvalue()
-        except Exception:
-            return None
-
-    data = await nicegui_run.io_bound(_load)
-    if data is None:
-        return Response(status_code=404)
-    return Response(content=data, media_type='image/png')
+from fibersight import preview
+from fibersight.pipeline import weights_present
+from fibersight.state import STATE
+from fibersight.ui.layout import build_page
 
 DEBUG = '--debug' in sys.argv
+STATE.models_ok = DEBUG or weights_present()        # once, at server start
+
+
+@app.get('/image')
+async def serve_image(path: str):
+    """Serve an image from the current image folder; TIFFs via the PNG preview cache.
+    Served over HTTP, not the websocket, so image size can't time out the page (REQ-40)."""
+    p = Path(path).resolve()
+    if not STATE.image_dir or p.parent != Path(STATE.image_dir).resolve() or not p.is_file():
+        return Response(status_code=404)
+    if p.suffix.lower() not in preview.CONVERT_EXTS:
+        return FileResponse(p)                          # browser-native: send as is
+    cached = await run.io_bound(preview.ensure_preview, p)
+    if cached:
+        return FileResponse(cached)
+    try:                                                # cache not writable: convert in memory
+        return Response(content=await run.io_bound(preview.render_png, p), media_type='image/png')
+    except Exception:
+        return Response(status_code=404)
 
 
 @ui.page('/')
 def index():
-    state = AppState()
-    state.debug = DEBUG
-    build_page(state)
-    if DEBUG:
-        # Skip weight check — mark models available, keep banner hidden
-        state.depth_model_available = True
-        state.seg_model_available = True
-    else:
-        ui.timer(0.2, lambda: check_models_startup(state), once=True)
+    build_page()
 
 
 if __name__ in {'__main__', '__mp_main__'}:
-    title = 'FiberSight [DEBUG]' if DEBUG else 'FiberSight'
     ui.run(
-        title=title,
+        title='FiberSight [DEBUG]' if DEBUG else 'FiberSight',
         dark=True,
+        host='127.0.0.1',           # local only: /image reads files from disk
         port=8888,
         reload=False,
+        reconnect_timeout=30.0,     # don't reap backgrounded tabs after 3 s (REQ-34)
         show=True,
         favicon='🔬',
     )

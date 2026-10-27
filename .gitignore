@@ -17,21 +17,28 @@ ENV/
 *.egg-info/
 dist/
 build/
-
-#ignore ide things
-#.idea/
-
-#ignore LLM
-/.claude
-
-#ignore packaging detial
 *.egg
 
-#ignore image files
+# IDE / assistant tooling
+.idea/
+.junie/
+/.claude
+
+# Model weights (see weights/README.md) and checkpoints
+/weights/*
+!/weights/README.md
+*.pth
+*.pt
+*.safetensors
+
+# FiberSight restart session (machine-local)
+/.fibersight_session.json
+
+# Local sample images (never committed)
+/test-images/
+
+# Image files
 *.png
 *.svg
+*.tif
 *.tiff
-
-#my secret sauce
-#/spec
-
